@@ -2,8 +2,11 @@ from collections import defaultdict
 
 from osm_time import ParseException, clean_value, get_minutes_from_midnight
 
+import re
+
 # Days of the week + ph (public holiday)
-DAYS_OF_THE_WEEK = ['mo', 'tu', 'we', 'th', 'fr', 'sa', 'su', 'ph']
+DAYS_OF_THE_WEEK = ['su', 'mo', 'tu', 'we', 'th', 'fr', 'sa', 'ph']
+MINUTES_FROM_SO = {'so': 0*1440, 'mo': 1*1440, 'tu': 2*1440, 'we': 3*1440, 'th': 4*1440, 'fr': 5*1440, 'sa': 6*1440}
 
 
 class OpeningHours(object):
@@ -64,20 +67,66 @@ def parse_string(value):
     Returns a dict with day of the week as key and
     a list of range of opening hours
     """
+    value = value.replace(',', ' ').replace(';', ' ')
     opening_hours = defaultdict(list)
-    for definition in value.split(';'):
-        # Mo-Fr 08:30-20:00
-        d, r = definition.strip().split(' ')
-        if '-' in d:
-            day_from, day_to = d.split('-')
-            day_fr = DAYS_OF_THE_WEEK.index(day_from.lower())
-            day_t = DAYS_OF_THE_WEEK.index(day_to.lower())
-            # Complete the dict for days between beginning and end
-            # e.g. Mo-Th --> Mo,Tu,We,Th
-            for da in DAYS_OF_THE_WEEK[day_fr:day_t + 1]:
-                opening_hours[da] = process_ranges(r)
-        else:
-            opening_hours[d] = process_ranges(r)
+    er = True
+    #for definition in value.split('  '):
+    if True:
+        definition = value.strip()
+        try:
+            pos = 0
+            while pos < len(definition):
+                #print("definition", definition)
+                # 1. try to find dayspan
+                se = re.search(r'^(mo|tu|we|th|fr|sa|su)-(mo|tu|we|th|fr|sa|su)', definition)
+
+                if not se:
+                    # 2. try single day
+                    se = re.search(r'^(mo|tu|we|th|fr|sa|su|ph)', definition)
+                    if not se:
+                        if er: print("Error: ", value)
+                        er = False
+                        pos += 1
+                        definition = definition[pos:]
+                        pos=0
+                        continue
+                    day_fr = DAYS_OF_THE_WEEK.index(se.group().strip())
+                    day_t = day_fr
+                else:
+                    day_fr = DAYS_OF_THE_WEEK.index(se.groups()[0].strip())
+                    day_t = DAYS_OF_THE_WEEK.index(se.groups()[1].strip())
+                pos = se.end()
+
+                while se:
+                    definition = definition[pos:].strip()
+                    pos = 0
+                    #print("tmp", definition)
+                    se = re.search(r'^\d\d:\d\d-\d\d:\d\d', definition)
+                    if not se:
+                        break
+
+                    pos = se.end()
+
+                    time = se.group()
+                    #print("time: ", time)
+
+                    for da in DAYS_OF_THE_WEEK[day_fr:day_t + 1]:
+                        rg = process_ranges(time.strip())
+                        if da in opening_hours:
+                            opening_hours[da] += rg
+                        else:
+                            opening_hours[da] = rg
+                definition = definition[pos:].strip()
+                pos=0
+                er = True
+        except Exception as e:
+            print("Error", e)
+            print(value)
+            print(definition)
+            print(times)
+            print(dayspans)
+            print(days)
+            raise
     return opening_hours
 
 
